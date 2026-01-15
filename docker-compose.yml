@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: moviesdb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-moviesdb}
+      POSTGRES_USER: ${POSTGRES_USER:-moviesdb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moviesdb}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moviesdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - moviesnet
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: moviesdb-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-moviesdb}:${POSTGRES_PASSWORD:-moviesdb}@db:5432/${POSTGRES_DB:-moviesdb}
+      JWT_SECRET: ${JWT_SECRET}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      OMDB_API_KEY: ${OMDB_API_KEY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./api/app:/app/app
+      - ./api/db:/app/db
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - moviesnet
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: moviesdb-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+    depends_on:
+      - api
+    networks:
+      - moviesnet
+
+volumes:
+  pgdata:
+
+networks:
+  moviesnet:
+    driver: bridge
